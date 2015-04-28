@@ -1,0 +1,16 @@
+#
+# Configuration file for AOS Project 2
+# 
+#
+# As per the "shell" convention, anything following a hash sign is
+# a comment and should be ignored by the parser.
+
+# Number of nodes
+2   	
+
+# First, we list the location of each node
+#
+# Format is:
+# Identifier	Hostname	Port	
+	0				192.168.1.214		3332	
+	1				192.168.1.82		5678
