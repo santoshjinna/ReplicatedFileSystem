@@ -23,15 +23,16 @@ public class FileManager {
 	public int RU;
 	public int DS;
 	
+	public int numberFiles=0;
 	public Object syncLock = new Object();
-	public volatile boolean fileWriteLock = false;
-	public volatile boolean fileReadLock = false;
+	public volatile boolean[] fileWriteLock;
+	public volatile boolean[] fileReadLock;
 	public volatile boolean gotReplies = false;
 	public int serverPort;
 	
 	public ArrayList<FileDetails> listOfFDs= new ArrayList<FileDetails>();
-	public ArrayList<Integer> listReadRequests= new ArrayList<Integer>();
-	public boolean[] permissions = new boolean[N];
+	public ArrayList<Integer>[] listReadRequests;
+	public FileDetails[] files;
 	int count = 0;
 	//write to file
 	//write(File f);
@@ -45,6 +46,11 @@ public class FileManager {
 	public FileManager(int nodeno){
 		parseFile("config.txt");
 		this.nodeNumber = nodeno;
+		files = new FileDetails[numberFiles];
+		fileWriteLock = new boolean[numberFiles];
+		fileReadLock = new boolean[numberFiles];
+		listReadRequests = new ArrayList[numberFiles];
+		initializeDS();
 		String add = nodeMap.get(nodeNumber);
 		String[] ips = add.split(":");
 		Server serv = new Server(this,Integer.parseInt(ips[1]));
@@ -95,9 +101,17 @@ public class FileManager {
 				}
 					
 	}
+	
+	public void initializeDS(){
+		for(int i=0;i<numberFiles;i++){
+			files[i]= new FileDetails(i,0,0,nodeNumber,null,nodeNumber);
+			listReadRequests[i] = new ArrayList<Integer>();
+		}
+	}
+	
 	public boolean write_enter(int fileNo, String addend) throws IOException{
-		if(askWritePermissions()){
-			write(addend);
+		if(askWritePermissions(fileNo)){
+			write(addend,fileNo);
 			return true;
 		}
 		
@@ -106,17 +120,17 @@ public class FileManager {
 	}
 	
 	public String read_enter(int fileNo) throws IOException{
-		if(askReadPermissions()){
-			return read();
+		if(askReadPermissions(fileNo)){
+			return read(fileNo);
 		}
 		return null;
 	}
 	
-	public boolean askWritePermissions() throws IOException{
+	public boolean askWritePermissions(int fileNumber) throws IOException{
 		do{
 			
-			if(acquireWriteLock()){
-				listOfFDs.add(new FileDetails(VN,RU,DS,formFile(),nodeNumber));
+			if(acquireWriteLock(fileNumber)){
+				listOfFDs.add(files[fileNumber]);
 				for(int i=0; i<N; i++){
 					if(i!=nodeNumber)
 					    sendWriteRequest(i);
@@ -130,7 +144,7 @@ public class FileManager {
 					return true;
 				}else{
 					synchronized(syncLock){
-					    fileWriteLock=false;
+					    fileWriteLock[fileNumber]=false;
 					}
 					releaseLocks();
 					//waitForExpo();
@@ -140,12 +154,12 @@ public class FileManager {
 		
 	}
 	
-	public boolean askReadPermissions() throws IOException{
+	public boolean askReadPermissions(int fileNumb) throws IOException{
 		do{
 			
-			if(acquireReadLock()){	
-				listReadRequests.add(nodeNumber);
-				listOfFDs.add(new FileDetails(VN,RU,DS,formFile(),nodeNumber));
+			if(acquireReadLock(fileNumb)){	
+				listReadRequests[fileNumb].add(nodeNumber);
+				listOfFDs.add(files[fileNumb]);
 				for(int i=0; i<N; i++){
 					if(i!=nodeNumber)
 					    sendReadRequest(i);
@@ -159,9 +173,9 @@ public class FileManager {
 					return true;
 				}else{
 					synchronized(syncLock){
-					    listReadRequests.remove(nodeNumber);
-					    if(listReadRequests.isEmpty())
-					    	fileReadLock = false;
+					    listReadRequests[fileNumb].remove(nodeNumber);
+					    if(listReadRequests[fileNumb].isEmpty())
+					    	fileReadLock[fileNumb] = false;
 					}
 					releaseLocks();
 					//waitForExpo();
@@ -196,7 +210,7 @@ public class FileManager {
 		return false;
 	}
 	
-	public void write(String addend) throws IOException{
+	public void write(String addend,int fileNo) throws IOException{
 		int maxVN=0;
 		FileDetails maxFD=null;
 		for(FileDetails fd:listOfFDs){
@@ -206,7 +220,7 @@ public class FileManager {
 		}
 		
 		byte[] fileArray = maxFD.byteFile;
-		BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream("Machine"+(nodeNumber+1)+"/file.txt"));
+		BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream("Machine"+(nodeNumber+1)+"/file"+fileNo+".txt"));
 		//bos.write(fileArray);
 		byte[] strBytes = addend.getBytes();
 		byte[] bytesToCopy = new byte[fileArray.length+strBytes.length];
@@ -216,22 +230,23 @@ public class FileManager {
 		bos.write(bytesToCopy);
 		bos.close();
 		
-		byte[] fileBytes = formFile();
-		FileDetails updated = new FileDetails(maxVN+1,listOfFDs.size(),nodeNumber,fileBytes,nodeNumber);
+		byte[] fileBytes = formFile(fileNo);
+		FileDetails updated = new FileDetails(fileNo,maxVN+1,listOfFDs.size(),nodeNumber,fileBytes,nodeNumber);
+		files[fileNo]=updated;
 		for(FileDetails fd:listOfFDs){
 			if(fd.nodeNo!=nodeNumber)
 			    sendWriteLockRelease(updated, fd.nodeNo);
 		}
 		
 		synchronized(syncLock){
-		    fileWriteLock=false;
+		    fileWriteLock[fileNo]=false;
 		}
 		listOfFDs.clear();
 		gotReplies=false;
 		count=0;
 	}
 	
-	public String read() throws IOException{
+	public String read(int fileNumb) throws IOException{
 		int maxVN=0;
 		FileDetails maxFD=null;
 		for(FileDetails fd:listOfFDs){
@@ -247,9 +262,9 @@ public class FileManager {
 			if(fd.nodeNo!=nodeNumber)
 			    sendReadRelease(fd.nodeNo);
 		}
-		listReadRequests.remove(nodeNumber);
-		if(listReadRequests.isEmpty())
-			fileReadLock = false;
+		listReadRequests[fileNumb].remove(nodeNumber);
+		if(listReadRequests[fileNumb].isEmpty())
+			fileReadLock[fileNumb] = false;
 		listOfFDs.clear();
 		gotReplies=false;
 		count=0;       
@@ -257,8 +272,8 @@ public class FileManager {
         return readString;
 	}
 	
-	public byte[] formFile() throws IOException{
-		File myFile = new File ("Machine"+(nodeNumber+1)+"/file.txt");
+	public byte[] formFile(int fileNumb) throws IOException{
+		File myFile = new File ("Machine"+(nodeNumber+1)+"/file"+fileNumb+".txt");
         byte [] mybytearray  = new byte [(int)myFile.length()];
         FileInputStream fis = new FileInputStream(myFile);
         BufferedInputStream bis = new BufferedInputStream(fis);
@@ -268,8 +283,8 @@ public class FileManager {
         return mybytearray;
 	}
 	
-	public void updateFile(byte[] fileBytes) throws IOException{
-		BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream("Machine"+(nodeNumber+1)+"/file.txt"));
+	public void updateFile(byte[] fileBytes, int fileNumb) throws IOException{
+		BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream("Machine"+(nodeNumber+1)+"/file"+fileNumb+".txt"));
 		bos.write(fileBytes);
 		bos.close();
 	}
@@ -447,7 +462,7 @@ public class FileManager {
 			
            // System.out.println("sent request to "+ destination+" from "+ nodeNo);
 			ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
-			Message reqMsg = new Message("WRELEASE",nodeNumber,fd,false);
+			Message reqMsg = new Message("WRELEASE",nodeNumber,fd,false,-1);
 			oos.writeObject(reqMsg);
 			//writer.close();
 			oos.close();
@@ -470,7 +485,7 @@ public class FileManager {
 			
            // System.out.println("sent request to "+ destination+" from "+ nodeNo);
 			ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
-			Message reqMsg = new Message("READRELEASE",nodeNumber,null,false);
+			Message reqMsg = new Message("READRELEASE",nodeNumber,null,false,-1);
 			oos.writeObject(reqMsg);
 			//writer.close();
 			oos.close();
@@ -493,7 +508,7 @@ public class FileManager {
 			
            // System.out.println("sent request to "+ destination+" from "+ nodeNo);
 			ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
-			Message reqMsg = new Message("RELEASE",nodeNumber,null,false);
+			Message reqMsg = new Message("RELEASE",nodeNumber,null,false,-1);
 			oos.writeObject(reqMsg);
 			//writer.close();
 			oos.close();
@@ -528,7 +543,7 @@ public class FileManager {
 	}	
 	
 	public void processWriteRequest(Message msg) throws IOException{
-		if(acquireWriteLock()){
+		if(acquireWriteLock(msg.fileNo)){
 			sendWriteReply(new FileDetails(VN,RU,DS,formFile(),nodeNumber),true,msg.sourceNode);
 		}else{
 			sendNoLockReply(msg.sourceNode);
@@ -536,7 +551,7 @@ public class FileManager {
 	}
 	
 	public void processReadRequest(Message msg) throws IOException{
-		if(acquireReadLock()){
+		if(acquireReadLock(msg.fileNo)){
 			sendReadReply(new FileDetails(VN,RU,DS,formFile(),nodeNumber),true,msg.sourceNode);
 			listReadRequests.add(msg.sourceNode);
 		}else{
@@ -551,37 +566,37 @@ public class FileManager {
 		this.RU = msg.fileDetails.RU;
 		this.DS = msg.fileDetails.DS;
 		synchronized(syncLock){
-		    fileWriteLock=false;
+		    fileWriteLock[msg.fileNo]=false;
 		}
 	}
 	
 	public void processReadRelease(Message msg){
 		listReadRequests.remove(msg.sourceNode);
 		if(listReadRequests.isEmpty())
-			fileReadLock = false;
+			fileReadLock[msg.fileNo] = false;
 	}
 	
 	public void processReleaseLock(Message msg){
 		synchronized(syncLock){
-			fileWriteLock = false;
+			fileWriteLock[msg.fileNo] = false;
 		}
 		listReadRequests.remove(msg.sourceNode);
 		if(listReadRequests.isEmpty())
-			fileReadLock = false;
+			fileReadLock[msg.fileNo] = false;
 	}
 	
 
-	public synchronized boolean acquireReadLock(){
-		if(!fileWriteLock){
-			fileReadLock = true;
+	public synchronized boolean acquireReadLock(int fileToLock){
+		if(!fileWriteLock[fileToLock]){
+			fileReadLock[fileToLock] = true;
 			return true;
 		}
 		return false;
 	}
 	
-	public synchronized boolean acquireWriteLock(){
-		if(!fileWriteLock && !fileReadLock){
-			fileWriteLock = true;
+	public synchronized boolean acquireWriteLock(int fileToLock){
+		if(!fileWriteLock[fileToLock] && !fileReadLock[fileToLock]){
+			fileWriteLock[fileToLock] = true;
 			return true;
 		}
 		return false;
