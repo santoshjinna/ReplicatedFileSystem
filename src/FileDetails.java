@@ -3,6 +3,10 @@ import java.io.Serializable;
 
 public class FileDetails implements Serializable{
 
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 6314909665058763902L;
 	public int fileNumber;
 	public int VN;
 	public int RU;
