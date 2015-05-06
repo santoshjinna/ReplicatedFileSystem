@@ -12,28 +12,36 @@ public class Testing {
 		int read = (fm.readoverwrite * fm.operations) / 100;
 		int write = fm.operations - read;
 		Random rand = new Random();
-		while(read >=0 || write >=0){
+		while(read >0 || write >0){
 			int rwselect = rand.nextInt(2);
-			int fileno = rand.nextInt(FileManager.numberFiles+1);
+			int fileno = rand.nextInt(FileManager.numberFiles);
 			int wait = getNext(fm.delay);
-			if(rwselect == 1){
-				String addend=String.valueOf(System.currentTimeMillis()) + "  "+String.valueOf(node)+"\n";
-		        fm.write_enter(fileno, addend);
-		        write--;
+			if(read>0 && write>0){
+				if(rwselect == 1){
+					System.out.println("writing to file "+fileno);
+					String addend=String.valueOf(System.currentTimeMillis()) + "  "+String.valueOf(node)+"\n";
+			        fm.write_enter(fileno, addend);
+			        write--;
+				}else{
+					System.out.println("reading from file "+fileno);
+					//System.out.println("The data inside " + fileno + " is :" +fm.read_enter(fileno));
+                                        fm.read_enter(fileno);
+					read--;
+				}
 			}
 			else if(write == 0){
-				System.out.println("The data inside " + fileno + " is :" +fm.read_enter(fileno));
+				System.out.println("reading from file "+fileno);
+				//System.out.println("The data inside " + fileno + " is :" +fm.read_enter(fileno));
+                                fm.read_enter(fileno);
 				read--;
 			}
 			else if(read == 0){
+				System.out.println("writing to file "+fileno);
 				String addend=String.valueOf(System.currentTimeMillis()) + "  "+String.valueOf(node)+"\n";
 		        fm.write_enter(fileno, addend);
 		        write--;
 			}
-			else{
-				System.out.println("The data inside " + fileno + " is :" +fm.read_enter(fileno));
-				read--;
-			}
+			
 			try {
 				Thread.sleep(wait);
 			} catch (InterruptedException e) {
@@ -41,6 +49,8 @@ public class Testing {
 				e.printStackTrace();
 			}	
 		}
+
+		
 		
 		
 	}

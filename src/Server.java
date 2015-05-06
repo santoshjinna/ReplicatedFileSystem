@@ -77,6 +77,9 @@ public class Server implements Runnable{
 				else if(msg.messageType.equalsIgnoreCase("WGRANT")){
 					fileManage.processWriteReply(msg);
 					
+				}else if(msg.messageType.equalsIgnoreCase("RGRANT")){
+					fileManage.processWriteReply(msg);
+					
 				}
 				else if(msg.messageType.equalsIgnoreCase("NOGRANT")){
 					fileManage.processWriteReply(msg);

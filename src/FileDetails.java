@@ -24,6 +24,18 @@ public class FileDetails implements Serializable{
 		this.fileNumber = fileNo;
 	}
 	
+	public String toString(){
+		String str = "This is file " +fileNumber+" version: "+VN+ " RU "+RU+" from node :"+nodeNo;
+		return str;
+	}
 	
+	public boolean equals(Object f){
+		FileDetails fd = (FileDetails) f;
+		if(fd.nodeNo == this.nodeNo)
+			return true;
+		else
+			return false;
+	}
 	
 }
+
