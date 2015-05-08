@@ -10,7 +10,6 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Vector;
 
 
 public class FileManager {
@@ -30,13 +29,14 @@ public class FileManager {
 	public volatile boolean[] fileWriteLock;
 	public volatile boolean[] fileReadLock;
 	public volatile boolean gotReplies = false;
+	public volatile boolean nodeCrash = false;
 	public int serverPort;
 	public int readoverwrite;
 	public int backoffmin;
 	public int backoffmax;
 	public static int totalNumber;
 	
-	public volatile Vector<FileDetails> listOfFDs= new Vector<FileDetails>();
+	public volatile ArrayList<FileDetails> listOfFDs= new ArrayList<FileDetails>();
 	public volatile ArrayList<Integer>[] listReadRequests;
 	public FileDetails[] files;
 	int count = 0;
@@ -46,8 +46,8 @@ public class FileManager {
 	public int[][] LVWs;
 	public int[][] LVRs;
 	public int[][] csCounts;
+	public int[] csMa;
 	
-	@SuppressWarnings("unchecked")
 	public FileManager(int nodeno){
 		parseConfigFile("config.txt");
 		this.nodeNumber = nodeno;
@@ -62,7 +62,7 @@ public class FileManager {
 		LVWs = new int[numberFiles][N];
 		LVRs = new int[numberFiles][N];
 		csCounts = new int[numberFiles][N];
-		
+		csMa = new int[numberFiles];
 		initializeDS();
 		
 		String add = nodeMap.get(nodeNumber);
@@ -70,6 +70,8 @@ public class FileManager {
 		Server serv = new Server(this,Integer.parseInt(ips[1]));
 		Thread serverThread = new Thread(serv);
 		serverThread.start();
+		Crasher crash = new Crasher(this);
+		//crash.start();
 		try {
 			Thread.sleep(5000);
 		} catch (InterruptedException e) {
@@ -120,7 +122,6 @@ public class FileManager {
 		}
 	}
 	
-	@SuppressWarnings("unused")
 	private static void createFile(){
 		int dirs = totalNumber;
 		while(dirs>0){
@@ -156,7 +157,7 @@ public class FileManager {
 				csCounts[i][j]=0;
 				
 			}
-			
+			csMa[i]=0;
 			nativeCSVectors[i][0]=-1;
 			nativeCSVectors[i][1]=-1;
 			nativeCSVectors[i][2]=-1;
@@ -165,6 +166,9 @@ public class FileManager {
 	}
 	
 	public boolean write_enter(int fileNo, String addend) throws IOException{
+		while(nodeCrash){
+			
+		}
 		if(askWritePermissions(fileNo)){
 			write(addend,fileNo);
 			return true;
@@ -175,6 +179,9 @@ public class FileManager {
 	}
 	
 	public String read_enter(int fileNo) throws IOException{
+		while(nodeCrash){
+			
+		}
 		if(askReadPermissions(fileNo)){
 			return read(fileNo);
 		}
@@ -185,10 +192,8 @@ public class FileManager {
 		do{
 			
 			if(acquireWriteLock(fileNumber)){
-				synchronized(this){
-					if(!listOfFDs.contains(files[fileNumber]))
-						listOfFDs.add(files[fileNumber]);
-				}
+				if(!listOfFDs.contains(files[fileNumber]))
+				    listOfFDs.add(files[fileNumber]);
 				for(int i=0; i<N; i++){
 					if(i!=nodeNumber)
 					    sendWriteRequest(i,fileNumber);
@@ -203,6 +208,9 @@ public class FileManager {
 				if(checkForPermissions()){
 					return true;
 				}else{
+					while(nodeCrash){
+						
+					}
 					synchronized(this){
 					    fileWriteLock[fileNumber]=false;
 					}
@@ -226,12 +234,9 @@ public class FileManager {
 	public boolean askReadPermissions(int fileNumb) throws IOException{
 		do{
 			
-			if(acquireReadLock(fileNumb,nodeNumber)){
-				// not printed properly
-				synchronized(this){
-					if(!listOfFDs.contains(files[fileNumb]))
-							listOfFDs.add(files[fileNumb]);
-				}
+			if(acquireReadLock(fileNumb,nodeNumber)){	
+				if(!listOfFDs.contains(files[fileNumb]))
+				    listOfFDs.add(files[fileNumb]);
 				for(int i=0; i<N; i++){
 					if(i!=nodeNumber)
 					    sendReadRequest(i,fileNumb);
@@ -246,6 +251,9 @@ public class FileManager {
 				if(checkForPermissions()){
 					return true;
 				}else{
+					while(nodeCrash){
+						
+					}
 					synchronized(this){
 					    listReadRequests[fileNumb].remove(Integer.valueOf(nodeNumber));
 					    if(listReadRequests[fileNumb].isEmpty())
@@ -270,22 +278,26 @@ public class FileManager {
 	
 	public boolean checkForPermissions(){
 		int maxVN=0,maxRU=0, maxVNCount=0, maxDS=-1;
+		//skip first and compare later with this node
 		for(FileDetails fd:listOfFDs){
 				if(fd.VN>=maxVN){
 					maxVN=fd.VN;
 					maxRU=fd.RU;
 				}
 		}	
+		
 		for(FileDetails f:listOfFDs){
 			    if(f.VN==maxVN){
 			    	maxVNCount++;
 			    	maxDS = f.DS;
 			    }
 		}
-		if(maxVNCount > maxRU/2){
+		
+		
+		if(maxVNCount > maxRU/2 -3){
 				return true;
 		}
-		else if(maxVNCount == maxRU/2){
+		else if((maxVNCount == maxRU/2) && (maxRU%2==0)){
 			for(FileDetails fd1:listOfFDs){
 				if(fd1.nodeNo == maxDS){
 					return true;
@@ -321,7 +333,16 @@ public class FileManager {
 		bos.close();
 		
 		nativeCSVectors[fileNo][0]=maxVN;
+		
+		nativeCSVectors[fileNo][2]=maxVN+1;
+		
+		//nativeCSVectors[fileNo][3]=nativeCSVectors[fileNo][3]+1;
+		nativeCSVectors[fileNo][3]=csMa[fileNo]+1;
+		
+		System.out.println("Writing done file "+fileNo);
+		System.out.println("CS count is: "+ nativeCSVectors[fileNo][3]);
 		System.out.println("testing version number: "+maxVN+" with size: "+listOfFDs.size());
+		System.out.println("Printing my own values: version "+ files[fileNo].VN+" RU: "+ files[fileNo].RU+" node no "+files[fileNo].nodeNo);
 		for(FileDetails test:listOfFDs){
 			System.out.println(test.toString());
 		}
@@ -334,9 +355,6 @@ public class FileManager {
 			    sendWriteLockRelease(updated, fd.nodeNo);
 		}
 		
-		nativeCSVectors[fileNo][2]=maxVN+1;
-		
-		nativeCSVectors[fileNo][3]=nativeCSVectors[fileNo][3]+1;		
 		
 		synchronized(this){
 		    fileWriteLock[fileNo]=false;
@@ -364,7 +382,17 @@ public class FileManager {
 			readString="";
 		
         nativeCSVectors[fileNumb][1]=maxVN;
-        nativeCSVectors[fileNumb][3]=nativeCSVectors[fileNumb][3]+1;		
+        //nativeCSVectors[fileNumb][3]=nativeCSVectors[fileNumb][3]+1;
+        nativeCSVectors[fileNumb][3]=csMa[fileNumb]+1;
+		
+		System.out.println("Reading done file "+fileNumb);
+		System.out.println("CS count is: "+ nativeCSVectors[fileNumb][3]);
+		System.out.println("testing version number: "+maxVN+" with size: "+listOfFDs.size());
+		System.out.println("Printing my own values: version "+ files[fileNumb].VN+" RU: "+ files[fileNumb].RU+" node no "+files[fileNumb].nodeNo);
+		for(FileDetails test:listOfFDs){
+			System.out.println(test.toString());
+		}
+		
         
 		for(FileDetails fd:listOfFDs){
 			if(fd.nodeNo!=nodeNumber)
@@ -409,6 +437,20 @@ public class FileManager {
 		gotReplies=false;
 		count=0;
 	}
+	
+	public void crash(long time){
+		nodeCrash = true;
+        System.out.println("NODE CRASH");
+		try {
+			Thread.sleep(time);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		System.out.println("NODE RECOVER");
+		nodeCrash = false;
+	}	
 	
 	public void sendReply(FileDetails fd, boolean renderLock, int destination){
 		try
@@ -497,6 +539,28 @@ public class FileManager {
 			ex.printStackTrace();
 		}		
 	}
+	
+//	public void sendRequest(int destination){
+//		try
+//		{
+//			String address = nodeMap.get(destination);
+//			String[] ips = address.split(":");
+//			//Create a client socket and connect to server at 127.0.0.1 port 5000
+//			Socket clientSocket = new Socket(ips[0],Integer.parseInt(ips[1]));
+//			
+//           // System.out.println("sent request to "+ destination+" from "+ nodeNo);
+//			ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
+//			Message reqMsg = new Message("REQ",nodeNumber,null,false);
+//			oos.writeObject(reqMsg);
+//			//writer.close();
+//			oos.close();
+//			clientSocket.close();
+//		}
+//		catch(IOException ex)
+//		{
+//			ex.printStackTrace();
+//		}
+//	}
 	
 	public void sendWriteRequest(int destination,int fileNumb){
 		try
@@ -608,59 +672,118 @@ public class FileManager {
 		{
 			ex.printStackTrace();
 		}
+	}
+	
+	public void sendCrashUTRReply(int destination){
+		try
+		{
+			String address = nodeMap.get(destination);
+			String[] ips = address.split(":");
+			//Create a client socket and connect to server at 127.0.0.1 port 5000
+			Socket clientSocket = new Socket(ips[0],Integer.parseInt(ips[1]));
+			
+           // System.out.println("sent request to "+ destination+" from "+ nodeNo);
+			ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
+			Message reqMsg = new Message("CRASHUTR",nodeNumber,null,false,-1,null);
+			oos.writeObject(reqMsg);
+			//writer.close();
+			oos.close();
+			clientSocket.close();
+		}
+		catch(IOException ex)
+		{
+			ex.printStackTrace();
+		}		
 	}	
 	
-	public void processWriteReply(Message reply){
-		fillCSVectors(reply.csVectors,reply.sourceNode);
-		if(reply.lockAcquired){
-			synchronized(this){
-				if(!listOfFDs.contains(reply.fileDetails))
-					listOfFDs.add(reply.fileDetails);
-			}
+	public void sendCrashedNoNeedMsg(int destination,int fileNumb){
+		try
+		{
+			String address = nodeMap.get(destination);
+			String[] ips = address.split(":");
+			//Create a client socket and connect to server at 127.0.0.1 port 5000
+			Socket clientSocket = new Socket(ips[0],Integer.parseInt(ips[1]));
+			
+           // System.out.println("sent request to "+ destination+" from "+ nodeNo);
+			ObjectOutputStream oos = new ObjectOutputStream(clientSocket.getOutputStream());
+			Message reqMsg = new Message("CRASHEDNONEED",nodeNumber,null,false,fileNumb,null);
+			oos.writeObject(reqMsg);
+			//writer.close();
+			oos.close();
+			clientSocket.close();
 		}
-		
-		count++;
-		if(count == N-1)
-			gotReplies = true;
+		catch(IOException ex)
+		{
+			ex.printStackTrace();
+		}		
+	}
+	
+	public void processWriteReply(Message reply){
+		if(!nodeCrash){
+			if(reply.csVectors!=null)
+				fillCSVectors(reply.csVectors,reply.sourceNode);
+			if(reply.lockAcquired){
+				if(!listOfFDs.contains(reply.fileDetails))
+				    listOfFDs.add(reply.fileDetails);
+				
+			}
+			
+			count++;
+			if(count == N-1)
+				gotReplies = true;
+		}else if(reply.lockAcquired){
+			sendCrashedNoNeedMsg(reply.sourceNode,reply.fileNo);
+		}
 	}
 	
 	public void processReadReply(Message reply){
-		if(reply.lockAcquired){
-			synchronized(this){
+		if(!nodeCrash){
+			if(reply.lockAcquired){
 				if(!listOfFDs.contains(reply.fileDetails))
-					listOfFDs.add(reply.fileDetails);
-			}
-		}else
-			//permissions[reply.sourceNode]=false;
-		
-		count++;
-		if(count == N-1)
-			gotReplies = true;
+				    listOfFDs.add(reply.fileDetails);			
+			}else
+				//permissions[reply.sourceNode]=false;
+			
+			count++;
+			if(count == N-1)
+				gotReplies = true;
+		}
 	}	
 	
 	public void processWriteRequest(Message msg) throws IOException{
-		if(acquireWriteLock(msg.fileNo)){
-			sendWriteReply(new FileDetails(msg.fileNo,files[msg.fileNo].VN,files[msg.fileNo].RU,files[msg.fileNo].DS,formFile(msg.fileNo),nodeNumber),true,msg.sourceNode,nativeCSVectors);
+		if(!nodeCrash){
+			if(acquireWriteLock(msg.fileNo)){
+				sendWriteReply(new FileDetails(msg.fileNo,files[msg.fileNo].VN,files[msg.fileNo].RU,files[msg.fileNo].DS,formFile(msg.fileNo),nodeNumber),true,msg.sourceNode,nativeCSVectors);
+			}else{
+				sendNoLockReply(msg.sourceNode,nativeCSVectors);
+			}
 		}else{
-			sendNoLockReply(msg.sourceNode,nativeCSVectors);
+			sendCrashUTRReply(msg.sourceNode);
 		}
 	}
 	
 	public void processReadRequest(Message msg) throws IOException{
-		if(acquireReadLock(msg.fileNo,msg.sourceNode)){
-			sendReadReply(new FileDetails(msg.fileNo,files[msg.fileNo].VN,files[msg.fileNo].RU,files[msg.fileNo].DS,formFile(msg.fileNo),nodeNumber),true,msg.sourceNode,nativeCSVectors);   
+		if(!nodeCrash){
+			if(acquireReadLock(msg.fileNo,msg.sourceNode)){
+				sendReadReply(new FileDetails(msg.fileNo,files[msg.fileNo].VN,files[msg.fileNo].RU,files[msg.fileNo].DS,formFile(msg.fileNo),nodeNumber),true,msg.sourceNode,nativeCSVectors);   
+			}else{
+				sendNoLockReply(msg.sourceNode,nativeCSVectors);
+			}
 		}else{
-			sendNoLockReply(msg.sourceNode,nativeCSVectors);
+			sendCrashUTRReply(msg.sourceNode);
 		}
 	}
 	
 	public void processWriteRelease(Message msg) throws IOException{
 		byte[] file = msg.fileDetails.byteFile;
 		updateFile(file,msg.fileNo);
-		this.VN = msg.fileDetails.VN;
-		this.RU = msg.fileDetails.RU;
-		this.DS = msg.fileDetails.DS;
-		files[msg.fileNo] = msg.fileDetails;
+//		this.VN = msg.fileDetails.VN;
+//		this.RU = msg.fileDetails.RU;
+//		this.DS = msg.fileDetails.DS;
+		files[msg.fileNo].VN=msg.fileDetails.VN;
+		files[msg.fileNo].RU=msg.fileDetails.RU;
+		files[msg.fileNo].DS = msg.fileDetails.DS;
+		//files[msg.fileNo] = msg.fileDetails;
 		synchronized(this){
 		    fileWriteLock[msg.fileNo]=false;
 		}
@@ -714,10 +837,11 @@ public class FileManager {
 			LVWs[i][srcNode]=csVecs[i][0];
 			LVRs[i][srcNode]=csVecs[i][1];
 		    csCounts[i][srcNode]=csVecs[i][3];
-		    //csMa[i]=Math.max(csMa[i], csVecs[i][3]);
+		    csMa[i]=Math.max(csMa[i], csVecs[i][3]);
+		    csMa[i]=Math.max(csMa[i], nativeCSVectors[i][3]);
 		    //VNMa[i]=Math.max(VNMa[i], csVecs[i][2]);
 		    nativeCSVectors[i][2]= Math.max(nativeCSVectors[i][2], csVecs[i][2]);
-		    nativeCSVectors[i][3]= Math.max(nativeCSVectors[i][3], csVecs[i][2]);
+		    //nativeCSVectors[i][3]= Math.max(nativeCSVectors[i][3], csVecs[i][3]);
 		}
 	}
 	
@@ -728,9 +852,9 @@ public class FileManager {
 				int isDer = findInRow(LVWs,i,LVWs[i][j],j);
 				if(isDer > -1){
 					if(Math.abs(LVWs[i][j] - nativeCSVectors[i][2])==1){
-						System.out.println("MUTUAL EXCLUSION VIOLATED b/w nodes "+isDer+" and "+j+" for file "+i);
-						print(LVWs,numberFiles,N);
-						print(nativeCSVectors,numberFiles,4);
+						System.out.println("MUTUAL EXCLUSION VIOLATED FOR WRITE b/w nodes "+isDer+" and "+j+" for file "+i);
+						//print(LVWs,numberFiles,N);
+						//print(nativeCSVectors,numberFiles,4);
 						nativeCSVectors[i][2]=nativeCSVectors[i][2]+1;
 					}
 				}
@@ -743,9 +867,14 @@ public class FileManager {
 				int isPresent = findInRow(LVRs,k,LVWs[k][l],l);
 				if(isPresent > -1){
 					if(csCounts[k][l]==csCounts[k][isPresent]){
-						if(csCounts[k][l]==nativeCSVectors[k][3]){
-						//	System.out.println("MUTUAL EXCLUSION VIOLATED b/w nodes "+isPresent+" and "+l+" for file "+k);
-							nativeCSVectors[k][3]=nativeCSVectors[k][3]+1;
+						if(csCounts[k][l]==csMa[k]){
+							System.out.println("MUTUAL EXCLUSION VIOLATED FOR READb/w nodes "+isPresent+" and "+l+" for file "+k);
+							System.out.println("with overlapping CS counts: "+" "+ csCounts[k][isPresent]+" "+csCounts[k][l]+ " max "+ nativeCSVectors[k][3]);
+							nativeCSVectors[k][3]=csMa[k]+1;
+							csMa[k]=csMa[k]+1;
+							//print(LVWs,numberFiles,N);
+							//print(LVRs,numberFiles,N);
+							//print(csCounts,numberFiles,N);
 						}
 					}
 				}

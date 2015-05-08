@@ -30,12 +30,13 @@ public class FileDetails implements Serializable{
 	}
 	
 	public boolean equals(Object f){
-		FileDetails fd = (FileDetails) f;
-		if(fd.nodeNo == this.nodeNo)
+		FileDetails fd = (FileDetails)f;
+		if(fd.nodeNo==this.nodeNo){
 			return true;
-		else
+		}else
 			return false;
 	}
 	
+	
+	
 }
-

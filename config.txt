@@ -6,11 +6,29 @@
 # a comment and should be ignored by the parser.
 
 # Number of nodes
-2   	
+2    	
 
 # First, we list the location of each node
 #
 # Format is:
 # Identifier	Hostname	Port	
 	0				192.168.1.214		3332	
-	1				192.168.1.82		5678
+	1				192.168.1.82		5678	
+
+
+# Numbers of files in the file system
+10
+
+# Parameters to control the behavior of the application
+
+# number of operations executed per node
+10       
+
+# Mean delay between two consecutive operations (assume exponentially distributed)
+50        
+
+# Fraction of read operations
+80
+
+# Parameters of exponential backoff (minimum and maximum waiting times)
+16 128

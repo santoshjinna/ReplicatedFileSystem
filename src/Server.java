@@ -93,6 +93,12 @@ public class Server implements Runnable{
 				}else if(msg.messageType.equalsIgnoreCase("RELEASE")){
 					fileManage.processReleaseLock(msg);
 					
+				}else if(msg.messageType.equalsIgnoreCase("CRASHUTR")){
+					fileManage.processWriteReply(msg);
+					
+				}else if(msg.messageType.equalsIgnoreCase("CRASHEDNONEED")){
+					fileManage.processReleaseLock(msg);
+					
 				}
 			}
 		}
